@@ -1,0 +1,376 @@
+//====== Parameter Pin =======//
+int driverPUL = 10;  // CW
+int driverDIR = 11;  // CCW
+int driverHOLD = 12; // Hold
+
+//====== Parameter Serial =======//
+String dataIn;
+boolean Forward = false;
+boolean Backward = false;
+boolean Hold = false;
+boolean UP = false;
+boolean DOWN = false;
+boolean STOP = false;
+
+//====== Parameter Button ======//
+#define switchUp 3
+#define switchDown 4
+#define switchStop 5
+
+int BtnUP = 0;
+int BtnDW = 0;
+int BtnSTP = 0;
+
+//====== Time Interval =======//
+#include <elapsedMillis.h>
+elapsedMicros timeInterval;
+unsigned long interval;
+boolean ledState = LOW;
+boolean PH = HIGH;
+int TH = 300; // width high pulse
+int Mode = 0;
+
+//====== Parameter Speed =======//
+int Speed1 = 40;     // MIN FREQ = 40 Hz 
+int Speed2 = 400;    //
+int Speed3 = 800;    //
+int Speed4 = 1200;   //
+int Speed5 = 30000;  // MAX FREQ = 35.000 Hz
+
+//====== Parameter EEPROM =======//
+#include <EEPROM.h>
+int addr1 = 0;
+int addr2 = 10;
+int addr3 = 20;
+int addr4 = 30;
+int addr5 = 40;
+int addr6 = 50;
+int addr7 = 60;
+int addr8 = 70;
+
+float dp_min;
+float dp_max;
+float sp_min;
+float sp_max;
+float idp_min;
+float idp_max;
+double isp_min;
+double isp_max;
+
+int Speed;
+int Show;
+float ShowSpeed;
+int Potensio = A0;
+float FreqTone1;// = 35; // MIN FREQ = 40 Hz
+float FreqTone2;// = 80;
+float FreqTone3;// = 150;
+float FreqTone4;// = 300;
+float FreqTone5;// = 600;
+float FreqTone6;// = 1200;
+float FreqTone7;// = 1400;
+float FreqTone8;// = 8000;
+float FreqTone9;// = 10000;
+float FreqTone10;// = 14000;
+float FreqTone11;// = 18000;
+float FreqTone12;// = 20000;
+float FreqTone13;// = 32000; // MAX FREQ = 35.000 Hz
+
+String incoming;
+String cal_command,command_length;
+double cal_length;
+
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 16,2);
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin();
+  lcd.init();
+  lcd.backlight();
+  Serial.println("[CONNECTED]");          //Serial Comunication To Software
+  pinMode(Potensio,INPUT);                //Input Parameter Speed  
+  pinMode(switchUp, INPUT_PULLUP);        //Input Button Up Piston
+  pinMode(switchDown, INPUT_PULLUP);      //Input Button Down Piston
+  pinMode(switchStop, INPUT_PULLUP);      //Input Button Stop 
+  pinMode(driverPUL, OUTPUT);             //Pulse To Driver Stepper
+  pinMode(driverDIR, OUTPUT);             //Direction To Driver Stepper
+  pinMode(driverHOLD, OUTPUT);            //Hold To Driver Stepper 
+
+  digitalWrite(switchUp, HIGH);
+  digitalWrite(switchDown, HIGH);
+  digitalWrite(switchStop, HIGH);
+
+  EEPROM.get(addr1,dp_min);          //Serial Value Speed 1 Save To EEPROM 
+  EEPROM.get(addr2,dp_max);          //Serial Value Speed 2 Save To EEPROM
+  EEPROM.get(addr3,sp_min);          //Serial Value Speed 3 Save To EEPROM
+  EEPROM.get(addr4,sp_max);          //Serial Value Speed 4 Save To EEPROM
+  EEPROM.get(addr5,idp_min);         //Serial Value Speed 5 Save To EEPROM
+  EEPROM.get(addr6,idp_max);         //Serial Value Speed 6 Save To EEPROM
+  EEPROM.get(addr7,isp_min);         //Serial Value Speed 7 Save To EEPROM
+  EEPROM.get(addr8,isp_max);         //Serial Value Speed 8 Save To EEPROM
+
+  calibrationMode();
+}
+
+void intervalFunction() {
+  if (timeInterval > TH & PH == HIGH) {
+    PH = LOW;
+  }
+  else if (timeInterval > interval - TH & PH == LOW) {
+    PH = HIGH;
+    timeInterval = 0;
+  }
+  //  Serial.print(interval); Serial.print(" "); Serial.println(PH);
+}
+
+void loop() {
+  Calibration();
+  control();
+  
+  if (!UP && !DOWN){
+    int ManSpeed = analogRead(Potensio);
+    Show = map(ManSpeed,0,1000,1,13);
+    if (Show > 13){
+      Show = 13;
+    }else if(Show < 1){
+      Show = 1;
+    }
+    ShowData ();
+    digitalWrite(driverPUL,0);
+    noTone(driverPUL);
+  }
+  
+  SelectionSpeed();
+  Enggine();
+  
+}
+
+void SerialReading() {
+  //  interval_Test();
+  if (Serial.available()) {
+    String inString = Serial.readString();
+    dataIn = inString;
+    dataIn.trim();
+
+    if (dataIn != "") {
+      if (dataIn == "UP") {
+        Forward = true;
+        UP = true;
+        Backward =  false;
+        Mode = Mode + 1;
+        Serial.println("UP");
+      } else if (dataIn == "DOWN") {
+        Forward = false;
+        Backward = true;
+        Serial.println("DOWN");
+      } else if (dataIn == "STOP") {
+        Hold = true;
+        STOP = true;
+        Forward = false;
+        Backward = false;
+        Mode = 0;
+        Serial.println("STOP");
+      }
+    }
+  }
+}
+
+void Enggine() {
+  if (UP == true){
+      digitalWrite(driverDIR, HIGH);
+      if (Show == 0){
+        noTone(driverPUL);
+      }else {
+        if (Show <= 3){
+          intervalFunction();
+          digitalWrite(driverPUL, PH);
+        }else {
+          tone (driverPUL,Speed);
+        }
+      }
+      ShowData ();
+    Serial.println(Show);
+    
+    }else if (DOWN == true){
+      digitalWrite(driverDIR, LOW);
+      if (Show == 0){
+        noTone(driverPUL);
+      }else {
+        if (Show <= 3){
+          intervalFunction();
+          digitalWrite(driverPUL, PH);
+        }else {
+          tone(driverPUL,Speed);
+        }
+      }
+    ShowData ();
+    Serial.println(Show);
+    
+    }else if (Hold == true){
+      Show = 0;
+      STOP = true;
+      UP = false;
+      DOWN = false;
+      noTone(driverPUL);
+    }
+}
+
+boolean press_btn_of(int btn) {
+  return digitalRead(btn);
+}
+
+void control() {
+  BtnUP = digitalRead(switchUp);
+  BtnDW = digitalRead(switchDown);
+  BtnSTP = digitalRead(switchStop);
+  
+  if (BtnUP == 0) {
+    UP = true;
+    DOWN = false;
+    STOP = false;
+  }
+  else if (BtnDW == 0) {
+    UP = false;
+    DOWN = true;
+    STOP = false;
+  }
+  else if (BtnSTP == 0) {
+    UP = false;
+    DOWN = false;
+    STOP = true;
+  }
+}
+
+void SelectionSpeed() {
+//  key_press1();
+  if (Show == 1) {ShowSpeed = 0.001;interval = FreqTone1;}//Serial.println(Speed);}
+  else if (Show == 2) {ShowSpeed = 0.005;interval = FreqTone2;}//Serial.println(Speed);}
+  else if (Show == 3) {ShowSpeed = 0.010;interval = FreqTone3;}//Serial.println(Speed);}
+  else if (Show == 4) {ShowSpeed = 0.90;Speed = FreqTone4;}//Serial.println(Speed);}
+  else if (Show == 5) {ShowSpeed = 1.05;Speed = FreqTone5;}//Serial.println(Speed);}
+  else if (Show == 6) {ShowSpeed = 1.35;Speed = FreqTone6;}//Serial.println(Speed);}  
+  else if (Show == 7) {ShowSpeed = 1.40;Speed = FreqTone7;}//Serial.println(Speed);}
+  else if (Show == 8) {ShowSpeed = 1.80;Speed = FreqTone8;}//Serial.println(Speed);}
+  else if (Show == 9) {ShowSpeed = 2.10;Speed = FreqTone9;}//Serial.println(Speed);}
+  else if (Show == 10) {ShowSpeed = 2.8;Speed = FreqTone10;}//Serial.println(Speed);}
+  else if (Show == 11) {ShowSpeed = 3.0;Speed = FreqTone11;}//Serial.println(Speed);}
+  else if (Show == 12) {ShowSpeed = 4.0;Speed = FreqTone12;}//Serial.println(Speed);}  
+  else if (Show == 13) {ShowSpeed = 5.0;Speed = FreqTone13;}//Serial.println(Speed);}
+}
+
+void Calibration(){
+  if (Serial.available()>0){
+//    cal_command = Serial.readString();
+    char inChar = Serial.read();
+    if (inChar == '!'){
+      cal_command = incoming;
+      Serial.println(cal_command);
+      incoming = "";
+    }else {
+      incoming.concat(inChar);
+//      Serial.println(inChar);
+    }
+   read_length(cal_command,&command_length,&cal_length);
+//   Serial.println(cal_length);
+   if (command_length == "dp.min"){
+    dp_min = cal_length; EEPROM.put(addr1,dp_min);
+    Serial.print("DP Min");Serial.print(dp_min,4);Serial.println("-> Saving to EEPROM!");}
+   else if (command_length == "dp.max"){
+    dp_max= cal_length; EEPROM.put(addr2,dp_max); // input adc1115
+    Serial.print("DP max "); Serial.print(dp_max,4); Serial.println(" -> Saving to EEPROM!");}
+   else if (command_length == "sp.min"){
+    sp_min=cal_length; EEPROM.put(addr3,sp_min);
+    Serial.print("SP min "); Serial.print(sp_min,4); Serial.println(" -> Saving to EEPROM!");}
+   else if (command_length == "sp.max"){
+    sp_max=cal_length; EEPROM.put(addr4,sp_max);
+    Serial.print("SP max "); Serial.print(sp_max,4); Serial.println(" -> Saving to EEPROM!");}
+   else if (command_length == "idp.min"){
+    idp_min=cal_length; EEPROM.put(addr5,idp_min);
+    Serial.print("IDP min "); Serial.print(idp_min,4); Serial.println(" -> Saving to EEPROM!");}
+   else if (command_length == "idp.max"){
+    idp_max=cal_length; EEPROM.put(addr6,idp_max);
+    Serial.print("IDP max "); Serial.print(idp_max,4); Serial.println(" -> Saving to EEPROM!");}
+   else if (command_length == "isp.min"){
+    isp_min=cal_length; EEPROM.put(addr7,isp_min);
+    Serial.print("ISP min "); Serial.print(isp_min,4); Serial.println(" -> Saving to EEPROM!");}
+   else if (command_length == "isp.max"){
+    isp_max=cal_length; EEPROM.put(addr8,isp_max);
+    Serial.print("ISP max "); Serial.print(isp_max,4); Serial.println(" -> Saving to EEPROM!");}
+   else if (command_length == "show.spd"){
+    showSpeed();} 
+   else if (command_length == "show.eeprom"){
+    showEpprom();}
+   else if (command_length == "refresh.eeprom"){
+    calibrationMode();}
+    cal_command = "";    
+  }
+}
+
+void read_length(String dataIn, String *command, double *dataOut){
+  String str_x; int idxx;
+  idxx = dataIn.indexOf('#');
+  *command = dataIn.substring(0,idxx );
+  str_x = dataIn.substring(idxx+1);
+  *dataOut = str_x.toFloat();
+}
+
+void showEpprom () {
+  Serial.println("Eeprom list : ");
+  Serial.print("Eeprom 1 : "); EEPROM.get(addr1,dp_min); Serial.println(dp_min,4);
+  Serial.print("Eeprom 2 : "); EEPROM.get(addr2,dp_max); Serial.println(dp_max,4);
+  Serial.print("Eeprom 3 : "); EEPROM.get(addr3,sp_min); Serial.println(sp_min,4);
+  Serial.print("Eeprom 4 : "); EEPROM.get(addr4,sp_max); Serial.println(sp_max,4);
+  Serial.print("Eeprom 5 : "); EEPROM.get(addr5,idp_min); Serial.println(idp_min,4);
+  Serial.print("Eeprom 6 : "); EEPROM.get(addr6,idp_max); Serial.println(idp_max,4);
+  Serial.print("Eeprom 7 : "); EEPROM.get(addr7,isp_min); Serial.println(isp_min,4);
+  Serial.print("Eeprom 8 : "); EEPROM.get(addr8,isp_max); Serial.println(isp_max,4);
+}
+
+void showSpeed () {
+  Serial.println("Speed list : ");
+  Serial.print("Speed 1 : "); Serial.println(FreqTone1,4);
+  Serial.print("Speed 2 : "); Serial.println(FreqTone2,4);
+  Serial.print("Speed 3 : "); Serial.println(FreqTone3,4);
+  Serial.print("Speed 4 : "); Serial.println(FreqTone4,4);
+  Serial.print("Speed 5 : "); Serial.println(FreqTone5,4);
+  Serial.print("Speed 6 : "); Serial.println(FreqTone6,4);
+  Serial.print("Speed 7 : "); Serial.println(FreqTone7,4);
+  Serial.print("Speed 8 : "); Serial.println(FreqTone8,4);
+  Serial.print("Speed 9 : "); Serial.println(FreqTone9,4);
+  Serial.print("Speed 10 : "); Serial.println(FreqTone10,4);
+  Serial.print("Speed 11 : "); Serial.println(FreqTone11,4);
+  Serial.print("Speed 12 : "); Serial.println(FreqTone12,4);
+  Serial.print("Speed 13 : "); Serial.println(FreqTone13,4);
+}
+
+void calibrationMode() {
+FreqTone1 = Linier(0.001 ,idp_min,idp_max,isp_min,isp_max); 
+FreqTone2 = Linier(0.005 ,idp_min,idp_max,isp_min,isp_max); 
+FreqTone3 = Linier(0.10 ,idp_min,idp_max,isp_min,isp_max);
+FreqTone4 = Linier(0.90 ,dp_min,dp_max,sp_min,sp_max); 
+FreqTone5 = Linier(1.05 ,dp_min,dp_max,sp_min,sp_max);
+FreqTone6 = Linier(1.35 ,dp_min,dp_max,sp_min,sp_max); 
+FreqTone7 = Linier(1.40 ,dp_min,dp_max,sp_min,sp_max); 
+FreqTone8 = Linier(1.80 ,dp_min,dp_max,sp_min,sp_max);
+FreqTone9 = Linier(2.10 ,dp_min,dp_max,sp_min,sp_max); 
+FreqTone10 = Linier(2.80 ,dp_min,dp_max,sp_min,sp_max);
+FreqTone11 = Linier(3.00 ,dp_min,dp_max,isp_min,isp_max); 
+FreqTone12 = Linier(3.50 ,dp_min,dp_max,sp_min,sp_max); 
+FreqTone13 = Linier(4.00 ,dp_min,dp_max,sp_min,sp_max);
+}
+
+float Linier(float realDP , float NilaiDPMIN,float NilaiDPMAX, float NilaiSpeedMIN ,float NilaiSpeedMAX ) {
+float SpeedOut;
+SpeedOut = (((realDP-NilaiDPMIN)/(NilaiDPMAX-NilaiDPMIN))*(NilaiSpeedMAX-NilaiSpeedMIN))+ NilaiSpeedMIN;
+return SpeedOut;
+}
+
+void ShowData (){
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("SPEED :");
+  lcd.setCursor(10, 1);
+  lcd.print(ShowSpeed,3);
+  delay(50);
+}
